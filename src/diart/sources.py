@@ -1,11 +1,14 @@
+import asyncio
+import base64
 import math
 from pathlib import Path
 from queue import SimpleQueue
-from typing import Text, Optional, Callable
+from typing import Text, Optional, Callable, AnyStr
 
 import numpy as np
 import sounddevice as sd
 import torch
+import websockets
 from einops import rearrange
 from pyannote.core import SlidingWindowFeature, SlidingWindow
 from rx.subject import Subject
@@ -222,3 +225,72 @@ class MicrophoneAudioSource(AudioSource):
                 self.stream.on_error(e)
                 break
         self.stream.on_completed()
+
+
+class WebSocketAudioSource(AudioSource):
+    """Represents a source of audio coming from the network using the WebSocket protocol.
+
+    Parameters
+    ----------
+    sample_rate: int
+        Sample rate of the chunks emitted.
+    host: Text
+        The host to run the websocket server. Defaults to ``None`` (all interfaces).
+    port: int
+        The port to run the websocket server. Defaults to 7007.
+    """
+    def __init__(self, sample_rate: int, host: Text = None, port: int = 7007):
+        name = host if host is not None and host else "localhost"
+        uri = f"{name}:{port}"
+        super().__init__(uri, sample_rate)
+        self.host = host
+        self.port = port
+        self.websocket = None
+
+    async def _ws_handler(self, websocket):
+        self.websocket = websocket
+        try:
+            async for message in websocket:
+                # Decode chunk encoded in base64
+                byte_samples = base64.decodebytes(message.encode("utf-8"))
+                # Recover array from bytes
+                samples = np.frombuffer(byte_samples, dtype=np.float32)
+                # Reshape and send through
+                self.stream.on_next(samples.reshape(1, -1))
+            self.stream.on_completed()
+        except websockets.ConnectionClosedError as e:
+            self.stream.on_error(e)
+
+    async def _async_read(self):
+        async with websockets.serve(self._ws_handler, self.host, self.port):
+            await asyncio.Future()
+
+    async def _async_send(self, message: AnyStr):
+        await self.websocket.send(message)
+
+    def read(self):
+        """Starts running the websocket server and listening for audio chunks"""
+        asyncio.run(self._async_read())
+
+    def send(self, message: AnyStr):
+        """Send a message through the current websocket.
+
+        Parameters
+        ----------
+        message: AnyStr
+            Bytes or string to send.
+        """
+        # A running loop must exist in order to send back a message
+        ws_closed = "Websocket isn't open, try calling `read()` first"
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            raise RuntimeError(ws_closed)
+
+        if not loop.is_running():
+            raise RuntimeError(ws_closed)
+
+        # TODO support broadcasting to many clients
+        # Schedule a coroutine to send back the message
+        if message:
+            asyncio.run_coroutine_threadsafe(self._async_send(message), loop=loop)

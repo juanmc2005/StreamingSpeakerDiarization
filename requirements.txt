@@ -11,3 +11,4 @@ pyannote.core>=4.4
 pyannote.database>=4.1.1
 pyannote.metrics>=3.2
 optuna>=2.10
+websockets>=10.3

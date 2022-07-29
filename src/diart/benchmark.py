@@ -23,7 +23,7 @@ def run():
     parser.add_argument("--batch-size", default=32, type=int, help=f"{argdoc.BATCH_SIZE}. Defaults to 32")
     parser.add_argument("--cpu", dest="cpu", action="store_true",
                         help=f"{argdoc.CPU}. Defaults to GPU if available, CPU otherwise")
-    parser.add_argument("--output", type=str, help=f"{argdoc.OUTPUT}. Defaults to `root`")
+    parser.add_argument("--output", type=str, help=f"{argdoc.OUTPUT}. Defaults to no writing")
     args = parser.parse_args()
     args.device = torch.device("cpu") if args.cpu else None
 
@@ -33,7 +33,7 @@ def run():
         args.output,
         show_progress=True,
         show_report=True,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
     )
 
     benchmark(OnlineSpeakerDiarization(PipelineConfig.from_namespace(args), profile=True))

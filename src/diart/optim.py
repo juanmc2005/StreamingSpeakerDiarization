@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Text, Optional, Union
+from typing import Sequence, Text, Optional, Union
 
 from optuna import TrialPruned, Study, create_study
 from optuna.samplers import TPESampler
@@ -38,14 +38,25 @@ DeltaNew = HyperParameter("delta_new", low=0, high=2)
 class Optimizer:
     def __init__(
         self,
-        benchmark: Benchmark,
-        base_config: PipelineConfig,
-        hparams: Iterable[HyperParameter],
+        speech_path: Union[Text, Path],
+        reference_path: Optional[Union[Text, Path]],
         study_or_path: Union[FilePath, Study],
+        batch_size: int = 32,
+        hparams: Optional[Sequence[HyperParameter]] = None,
+        base_config: Optional[PipelineConfig] = None,
     ):
-        self.benchmark = benchmark
-        self.base_config = base_config
+        self.benchmark = Benchmark(
+            speech_path,
+            reference_path,
+            show_progress=True,
+            show_report=False,
+            batch_size=batch_size,
+        )
+        self.base_config = PipelineConfig() if base_config is None else base_config
         self.hparams = hparams
+        if self.hparams is None:
+            self.hparams = [TauActive, RhoUpdate, DeltaNew]
+
         self._progress: Optional[tqdm] = None
 
         if isinstance(study_or_path, Study):
@@ -99,15 +110,10 @@ class Optimizer:
         # Run pipeline over the dataset
         report = self.benchmark(pipeline)
 
-        # Clean RTTM files
-        for tmp_file in self.benchmark.output_path.iterdir():
-            if tmp_file.name.endswith(".rttm"):
-                tmp_file.unlink()
-
         # Extract DER from report
         return report.loc["TOTAL", "diarization error rate"]["%"]
 
-    def optimize(self, num_iter: int, show_progress: bool = True):
+    def __call__(self, num_iter: int, show_progress: bool = True):
         self._progress = None
         if show_progress:
             self._progress = trange(num_iter)

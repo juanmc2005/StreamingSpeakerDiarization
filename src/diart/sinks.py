@@ -1,5 +1,4 @@
 from pathlib import Path
-from traceback import print_exc
 from typing import Union, Text, Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -18,11 +17,11 @@ class RTTMWriter(Observer):
     def __init__(self, path: Union[Path, Text], patch_collar: float = 0.05):
         super().__init__()
         self.patch_collar = patch_collar
-        self.path = Path(path)
+        self.path = Path(path).expanduser()
         if self.path.exists():
             self.path.unlink()
 
-    def patch_rttm(self):
+    def patch(self):
         """Stitch same-speaker turns that are close to each other"""
         annotation = list(load_rttm(self.path).values())[0]
         with open(self.path, 'w') as file:
@@ -33,15 +32,36 @@ class RTTMWriter(Observer):
             value[0].write_rttm(file)
 
     def on_error(self, error: Exception):
-        try:
-            self.patch_rttm()
-        except Exception:
-            print("Error while patching RTTM file:")
-            print_exc()
-            exit(1)
+        self.patch()
+        raise error
 
     def on_completed(self):
-        self.patch_rttm()
+        self.patch()
+
+
+class RTTMAccumulator(Observer):
+    def __init__(self, patch_collar: float = 0.05):
+        super().__init__()
+        self.patch_collar = patch_collar
+        self.annotation = None
+
+    def patch(self):
+        """Stitch same-speaker turns that are close to each other"""
+        self.annotation.support(self.patch_collar)
+
+    def on_next(self, value: Tuple[Annotation, SlidingWindowFeature]):
+        annotation, waveform = value
+        if self.annotation is None:
+            self.annotation = annotation
+        else:
+            self.annotation.update(annotation)
+
+    def on_error(self, error: Exception):
+        self.patch()
+        raise error
+
+    def on_completed(self):
+        self.patch()
 
 
 class RealTimePlot(Observer):
@@ -124,4 +144,4 @@ class RealTimePlot(Observer):
 
     def on_error(self, error: Exception):
         if not isinstance(error, WindowClosedException):
-            print_exc()
+            raise error

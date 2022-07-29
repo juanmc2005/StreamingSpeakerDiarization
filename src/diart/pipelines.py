@@ -130,8 +130,8 @@ class OnlineSpeakerTracking:
 
 
 class OnlineSpeakerDiarization:
-    def __init__(self, config: PipelineConfig, profile: bool = False):
-        self.config = config
+    def __init__(self, config: Optional[PipelineConfig] = None, profile: bool = False):
+        self.config = PipelineConfig() if config is None else config
         self.profile = profile
         self.segmentation = blocks.SpeakerSegmentation(config.segmentation, config.device)
         self.embedding = blocks.OverlapAwareSpeakerEmbedding(

@@ -1,13 +1,11 @@
 import argparse
 from pathlib import Path
-from uuid import uuid4
 
 import optuna
 import torch
 from optuna.samplers import TPESampler
 
 import diart.argdoc as argdoc
-from diart.inference import Benchmark
 from diart.optim import Optimizer, HyperParameter
 from diart.pipelines import PipelineConfig
 
@@ -33,25 +31,9 @@ def run():
     parser.add_argument("--num-iter", default=100, type=int, help="Number of optimization trials")
     parser.add_argument("--storage", type=str,
                         help="Optuna storage string. If provided, continue a previous study instead of creating one. The database name must match the study name")
-    parser.add_argument("--output", required=True, type=str, help="Working directory")
+    parser.add_argument("--output", type=str, help="Working directory")
     args = parser.parse_args()
-    args.output = Path(args.output)
-    args.output.mkdir(parents=True, exist_ok=True)
     args.device = torch.device("cpu") if args.cpu else None
-
-    # Assign unique worker ID
-    idx = uuid4()
-
-    # Create benchmark object to run the pipeline on a set of files
-    work_path = args.output / f"worker-{idx}"
-    benchmark = Benchmark(
-        args.root,
-        args.reference,
-        work_path,
-        show_progress=True,
-        show_report=False,
-        batch_size=args.batch_size
-    )
 
     # Create the base configuration for each trial
     base_config = PipelineConfig.from_namespace(args)
@@ -60,17 +42,28 @@ def run():
     hparams = [HyperParameter.from_name(name) for name in args.hparams]
 
     # Use a custom storage if given
-    study_or_path = args.output
-    if args.storage is not None:
+    if args.output is not None:
+        msg = "Both `output` and `storage` were set, but only one was expected"
+        assert args.storage is None, msg
+        args.output = Path(args.output)
+        args.output.mkdir(parents=True, exist_ok=True)
+        study_or_path = args.output
+    elif args.storage is not None:
         db_name = Path(args.storage).stem
         study_or_path = optuna.load_study(db_name, args.storage, TPESampler())
+    else:
+        msg = "Please provide either `output` or `storage`"
+        raise ValueError(msg)
 
     # Run optimization
-    optimizer = Optimizer(benchmark, base_config, hparams, study_or_path)
-    optimizer.optimize(num_iter=args.num_iter, show_progress=True)
-
-    # Clean temporary directory
-    work_path.rmdir()
+    Optimizer(
+        speech_path=args.root,
+        reference_path=args.reference,
+        study_or_path=study_or_path,
+        batch_size=args.batch_size,
+        hparams=hparams,
+        base_config=base_config,
+    )(num_iter=args.num_iter, show_progress=True)
 
 
 if __name__ == "__main__":

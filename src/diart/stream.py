@@ -7,6 +7,7 @@ import diart.argdoc as argdoc
 import diart.sources as src
 from diart.inference import RealTimeInference
 from diart.pipelines import OnlineSpeakerDiarization, PipelineConfig
+from diart.sinks import RTTMWriter
 
 
 def run():
@@ -44,7 +45,9 @@ def run():
         audio_source = src.MicrophoneAudioSource(config.sample_rate)
 
     # Run online inference
-    RealTimeInference(args.output, do_plot=not args.no_plot)(pipeline, audio_source)
+    inference = RealTimeInference(pipeline, audio_source, do_plot=not args.no_plot)
+    inference.attach_observers(RTTMWriter(args.output / f"{audio_source.uri}.rttm"))
+    inference()
 
 
 if __name__ == "__main__":
